@@ -1,6 +1,10 @@
 # Saídas de treino (pesos, tokenizador)
 out/
 
+# Código-fonte que você joga aqui para montar o corpus (prepare_cpp.py)
+data/cpp_src/
+data/shakespeare.txt
+
 # Python
 __pycache__/
 *.py[cod]

@@ -55,7 +55,7 @@ def estimate_loss(model, splits, block_size, batch_size, device, eval_iters=50):
 
 def main():
     p = argparse.ArgumentParser(description="Treina o mini-GPT de caractere.")
-    p.add_argument("--data", default="data/input.txt", help="arquivo de texto")
+    p.add_argument("--data", default="data/cpp.txt", help="arquivo de texto")
     p.add_argument("--out", default="out", help="pasta de saída")
     p.add_argument("--iters", type=int, default=2000, help="passos de treino")
     p.add_argument("--batch_size", type=int, default=32)
@@ -68,11 +68,20 @@ def main():
     p.add_argument("--eval_interval", type=int, default=200)
     p.add_argument("--seed", type=int, default=1337)
     p.add_argument("--device", default=None, help="cpu ou cuda (auto se vazio)")
+    p.add_argument("--amp", action="store_true",
+                   help="mixed precision na GPU (mais rápido, usa menos memória)")
     args = p.parse_args()
 
     torch.manual_seed(args.seed)
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Dispositivo: {device}")
+
+    # AMP (float16) só faz sentido em GPU CUDA.
+    use_amp = args.amp and device == "cuda"
+    if args.amp and not use_amp:
+        print("Aviso: --amp ignorado (só funciona em GPU CUDA).")
+    if use_amp:
+        print("Mixed precision (AMP float16) ativado.")
 
     # 1) Lê o texto -------------------------------------------------------
     with open(args.data, "r", encoding="utf-8") as f:
@@ -101,6 +110,8 @@ def main():
     print(f"Parâmetros do modelo: {model.num_params():,}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    # GradScaler evita underflow dos gradientes em float16 (no-op se AMP off).
+    scaler = torch.amp.GradScaler(device, enabled=use_amp)
 
     # 5) Loop de treino ---------------------------------------------------
     best_val = float("inf")
@@ -125,14 +136,17 @@ def main():
                 tok.save(os.path.join(args.out, "tokenizer.json"))
 
         x, y = get_batch(splits["treino"], args.block_size, args.batch_size, device)
-        _, loss = model(x, y)
+        # autocast roda a passagem em float16 na GPU quando AMP está ligado.
+        with torch.amp.autocast(device_type=device, enabled=use_amp):
+            _, loss = model(x, y)
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        optimizer.step()
+        scaler.scale(loss).backward()  # escala a loss antes do backward
+        scaler.step(optimizer)         # aplica o passo (desfaz a escala)
+        scaler.update()                # ajusta o fator de escala
 
     print(f"\nTreino concluído. Melhor loss de validação: {best_val:.4f}")
     print(f"Checkpoint salvo em: {os.path.join(args.out, 'ckpt.pt')}")
-    print(f"Gere texto com:  python sample.py --prompt \"Era uma vez\"")
+    print(f"Gere código com:  python sample.py --prompt \"#include <iostream>\"")
 
 
 if __name__ == "__main__":

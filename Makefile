@@ -8,7 +8,7 @@ PYTHON := $(shell [ -x $(VENV)/bin/python ] && echo $(VENV)/bin/python || echo p
 # Variáveis sobrescrevíveis na linha de comando, ex.:
 #   make train ITERS=5000 N_LAYER=6
 #   make sample PROMPT="Era uma vez" TEMPERATURE=0.7
-DATA        ?= data/input.txt
+DATA        ?= data/cpp.txt
 ITERS       ?= 2000
 N_LAYER     ?= 4
 N_HEAD      ?= 4
@@ -16,16 +16,19 @@ N_EMBD      ?= 128
 BLOCK_SIZE  ?= 128
 BATCH_SIZE  ?= 32
 LR          ?= 3e-4
-PROMPT      ?= A raposa
+AMP         ?= 0
+PROMPT      ?= int main()
 MAX_TOKENS  ?= 300
 TEMPERATURE ?= 0.8
 TOP_K       ?=
+CPP_SRC     ?= data/cpp_src
 
-# TOP_K é opcional: só entra na linha de comando se for definido.
+# Flags opcionais: só entram na linha de comando quando definidas.
 TOPK_FLAG := $(if $(TOP_K),--top_k $(TOP_K),)
+AMP_FLAG  := $(if $(filter 1,$(AMP)),--amp,)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup install train sample data clean clean-all
+.PHONY: help setup install train sample data cpp clean clean-all
 
 help: ## Mostra esta ajuda
 	@echo "minimum-llm-training — comandos disponíveis:"
@@ -34,9 +37,10 @@ help: ## Mostra esta ajuda
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "Exemplos:"
-	@echo "  make setup                        # cria venv e instala o PyTorch (CPU)"
-	@echo "  make train ITERS=5000 N_LAYER=6   # treina com mais passos/camadas"
-	@echo "  make sample PROMPT=\"O leão\"        # gera texto a partir de um prompt"
+	@echo "  make setup                            # cria venv e instala o PyTorch"
+	@echo "  make cpp CPP_SRC=~/meus_projetos      # monta o corpus com seu codigo"
+	@echo "  make train ITERS=5000 AMP=1           # treina na GPU com mixed precision"
+	@echo "  make sample PROMPT='int main()'       # completa a partir de um trecho"
 
 setup: ## Cria o venv e instala o PyTorch (versão CPU)
 	python3 -m venv $(VENV)
@@ -46,16 +50,19 @@ setup: ## Cria o venv e instala o PyTorch (versão CPU)
 
 install: setup ## Alias de 'setup'
 
-train: ## Treina o modelo (use ITERS=, N_LAYER=, DATA=, ...)
+train: ## Treina o modelo (use ITERS=, N_LAYER=, DATA=, AMP=1 p/ GPU)
 	$(PYTHON) train.py \
 		--data $(DATA) --iters $(ITERS) \
 		--n_layer $(N_LAYER) --n_head $(N_HEAD) --n_embd $(N_EMBD) \
-		--block_size $(BLOCK_SIZE) --batch_size $(BATCH_SIZE) --lr $(LR)
+		--block_size $(BLOCK_SIZE) --batch_size $(BATCH_SIZE) --lr $(LR) $(AMP_FLAG)
 
 sample: ## Gera texto (use PROMPT=, MAX_TOKENS=, TEMPERATURE=, TOP_K=)
 	$(PYTHON) sample.py \
 		--prompt "$(PROMPT)" --max_new_tokens $(MAX_TOKENS) \
 		--temperature $(TEMPERATURE) $(TOPK_FLAG)
+
+cpp: ## Monta data/cpp.txt a partir dos seus arquivos (use CPP_SRC=<pasta>)
+	$(PYTHON) prepare_cpp.py --src $(CPP_SRC) --out $(DATA)
 
 data: ## Baixa um corpus maior (tiny shakespeare) para data/
 	$(PYTHON) download_data.py

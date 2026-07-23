@@ -16,18 +16,26 @@ do Andrej Karpathy, mas ainda mais enxuto e didático.
 | `tokenizer.py`      | Tokenizador de caractere (char → id → char)               |
 | `train.py`          | Loop de treino (lê texto, treina, salva checkpoint)       |
 | `sample.py`         | Gera texto a partir de um modelo treinado                 |
-| `data/input.txt`    | Corpus de exemplo (fábulas em português)                  |
+| `data/cpp.txt`      | Corpus de exemplo **em C++** (usado por padrão)           |
+| `prepare_cpp.py`    | Monta um corpus de C++ a partir dos seus arquivos         |
+| `data/input.txt`    | Corpus alternativo (fábulas em português)                 |
 | `download_data.py`  | Baixa um corpus maior (tiny shakespeare)                  |
+
+> **Foco em C++.** Por padrão o modelo treina em `data/cpp.txt` e aprende a
+> **gerar/completar código C++**. Ele completa trechos no estilo do corpus —
+> não é um assistente que "responde perguntas" nem garante código correto
+> (isso exigiria fine-tuning de um modelo pré-treinado bem maior).
 
 ## Atalhos com Make (opcional)
 
 Se você tem `make`, dá para pular os comandos longos:
 
 ```bash
-make setup                        # cria o venv e instala o PyTorch (CPU)
-make train                        # treina no corpus de exemplo
-make sample PROMPT="A raposa"     # gera texto
-make help                         # lista todos os comandos
+make setup                          # cria o venv e instala o PyTorch
+make train                          # treina no corpus de C++ (data/cpp.txt)
+make sample PROMPT="int main()"     # completa código C++
+make train AMP=1                    # treina na GPU com mixed precision
+make help                           # lista todos os comandos
 ```
 
 Tudo é sobrescrevível: `make train ITERS=5000 N_LAYER=6`,
@@ -56,18 +64,18 @@ Você verá a *loss* caindo:
 
 ```
 Dispositivo: cpu
-Corpus: 4,812 caracteres
-Vocabulário: 61 caracteres únicos
+Corpus: 6,283 caracteres
+Vocabulário: 77 caracteres únicos
 Parâmetros do modelo: 812,861
-passo     1 | treino 4.2011 | val 4.2039
+passo     1 | treino 4.2429 | val 4.2118
 passo   200 | treino 2.4518 | val 2.4602
 passo  2000 | treino 1.4832 | val 1.6201
 ```
 
-**2. Gerar texto**:
+**2. Gerar código**:
 
 ```bash
-python sample.py --prompt "A raposa"
+python sample.py --prompt "int main()"
 ```
 
 ## Como funciona (visão de 1 minuto)
@@ -99,27 +107,53 @@ python train.py \
 
 Dicas:
 - **Só quero ver funcionando rápido**: `--iters 500 --n_layer 2 --n_embd 64`.
-- **Quero um texto mais convincente**: baixe mais dados
-  (`python download_data.py`) e treine com `--iters 5000` ou mais.
-- **Tenho GPU NVIDIA**: instale o PyTorch com CUDA; o código usa a GPU
-  automaticamente (ou force com `--device cuda`).
+- **Quero código mais convincente**: monte um corpus grande com o seu próprio
+  código (`prepare_cpp.py`, abaixo) e treine com `--iters 5000` ou mais.
 
-## Treinar com o SEU texto
+## Treinando em C++ (o padrão)
 
-Basta apontar para qualquer arquivo `.txt` em UTF-8:
+O corpus embutido (`data/cpp.txt`) é só uma amostra. Para o modelo gerar C++ de
+verdade, ele precisa ver **muito** código. Aponte o `prepare_cpp.py` para os seus
+projetos: ele varre a pasta, junta todos os `.cpp/.hpp/.h/...` num único arquivo
+de treino (pulando `build/`, `.git/`, etc.):
 
 ```bash
-python train.py --data data/meu_texto.txt --iters 4000
-python sample.py --prompt "Era uma vez"
+python prepare_cpp.py --src ~/meus_projetos --out data/cpp.txt
+python train.py --data data/cpp.txt --iters 5000 --amp
+python sample.py --prompt "int main()"
 ```
 
-Quanto maior e mais consistente o corpus, melhor o resultado. Junte vários
-textos num único arquivo se precisar.
+Quanto maior e mais **consistente** o estilo do código, melhor o resultado — um
+modelo pequeno aprende mal com muitos estilos misturados.
+
+## Usando a GPU (NVIDIA)
+
+Instale o PyTorch com CUDA (veja [pytorch.org](https://pytorch.org)); o código
+detecta a GPU automaticamente (ou force com `--device cuda`). Para treinar mais
+rápido e usando menos memória, ligue **mixed precision**:
+
+```bash
+python train.py --data data/cpp.txt --iters 8000 --amp \
+  --n_layer 6 --n_embd 256 --block_size 256 --batch_size 64
+```
+
+Com GPU você pode subir bastante `n_layer`, `n_embd` e `block_size` — é aí que o
+modelo começa a gerar C++ com estrutura de verdade. O `--amp` só tem efeito em
+GPU (na CPU é ignorado com um aviso).
+
+## Treinar com QUALQUER texto
+
+Não é só C++: aponte `--data` para qualquer `.txt` em UTF-8 (código de outra
+linguagem, prosa, etc.):
+
+```bash
+python train.py --data data/input.txt --iters 4000   # ex.: fábulas em PT-BR
+```
 
 ## Controlando a geração
 
 ```bash
-python sample.py --prompt "O leão" --temperature 0.7 --top_k 40 --max_new_tokens 500
+python sample.py --prompt "int main()" --temperature 0.7 --top_k 40 --max_new_tokens 500
 ```
 
 - `--temperature`: `< 1.0` mais previsível/repetitivo; `> 1.0` mais criativo/caótico.

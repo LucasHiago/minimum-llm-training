@@ -1,0 +1,266 @@
+// ============================================================
+// Corpus de exemplo em C++ para o minimum-llm-training.
+// Vários programas curtos, completos e idiomaticos. O modelo
+// aprende o "estilo" do C++ e completa codigo parecido.
+// Para treinos serios, gere um corpus maior com prepare_cpp.py
+// a partir dos seus proprios arquivos .cpp/.hpp.
+// ============================================================
+
+#include <iostream>
+
+int main() {
+    std::cout << "Ola, mundo!" << std::endl;
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Soma e media de uma lista de numeros.
+#include <iostream>
+#include <vector>
+
+int main() {
+    std::vector<int> numeros = {4, 8, 15, 16, 23, 42};
+    int soma = 0;
+    for (int n : numeros) {
+        soma += n;
+    }
+    double media = static_cast<double>(soma) / numeros.size();
+    std::cout << "Soma: " << soma << "\n";
+    std::cout << "Media: " << media << "\n";
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Fibonacci: versao recursiva e versao iterativa.
+#include <iostream>
+
+long fib_recursivo(int n) {
+    if (n < 2) {
+        return n;
+    }
+    return fib_recursivo(n - 1) + fib_recursivo(n - 2);
+}
+
+long fib_iterativo(int n) {
+    long a = 0, b = 1;
+    for (int i = 0; i < n; ++i) {
+        long proximo = a + b;
+        a = b;
+        b = proximo;
+    }
+    return a;
+}
+
+int main() {
+    for (int i = 0; i < 10; ++i) {
+        std::cout << fib_iterativo(i) << " ";
+    }
+    std::cout << std::endl;
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Fatorial com verificacao de entrada.
+#include <iostream>
+
+unsigned long long fatorial(int n) {
+    unsigned long long resultado = 1;
+    for (int i = 2; i <= n; ++i) {
+        resultado *= i;
+    }
+    return resultado;
+}
+
+int main() {
+    int n;
+    std::cout << "Digite um numero: ";
+    std::cin >> n;
+    if (n < 0) {
+        std::cout << "Nao existe fatorial de negativo.\n";
+        return 1;
+    }
+    std::cout << n << "! = " << fatorial(n) << "\n";
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Classe simples com construtor e metodos.
+#include <iostream>
+
+class Retangulo {
+public:
+    Retangulo(double largura, double altura)
+        : largura_(largura), altura_(altura) {}
+
+    double area() const {
+        return largura_ * altura_;
+    }
+
+    double perimetro() const {
+        return 2 * (largura_ + altura_);
+    }
+
+private:
+    double largura_;
+    double altura_;
+};
+
+int main() {
+    Retangulo r(3.0, 4.0);
+    std::cout << "Area: " << r.area() << "\n";
+    std::cout << "Perimetro: " << r.perimetro() << "\n";
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Ordenacao: bubble sort classico.
+#include <iostream>
+#include <vector>
+
+void bubble_sort(std::vector<int>& v) {
+    for (size_t i = 0; i < v.size(); ++i) {
+        for (size_t j = 0; j + 1 < v.size() - i; ++j) {
+            if (v[j] > v[j + 1]) {
+                std::swap(v[j], v[j + 1]);
+            }
+        }
+    }
+}
+
+int main() {
+    std::vector<int> v = {5, 2, 9, 1, 7, 3};
+    bubble_sort(v);
+    for (int x : v) {
+        std::cout << x << " ";
+    }
+    std::cout << std::endl;
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Ordenacao com std::sort e uma lambda (por ordem decrescente).
+#include <algorithm>
+#include <iostream>
+#include <vector>
+
+int main() {
+    std::vector<int> v = {5, 2, 9, 1, 7, 3};
+    std::sort(v.begin(), v.end(), [](int a, int b) {
+        return a > b;
+    });
+    for (int x : v) {
+        std::cout << x << " ";
+    }
+    std::cout << "\n";
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Funcao template: retorna o maior de dois valores.
+#include <iostream>
+#include <string>
+
+template <typename T>
+T maximo(const T& a, const T& b) {
+    return (a > b) ? a : b;
+}
+
+int main() {
+    std::cout << maximo(3, 7) << "\n";
+    std::cout << maximo(2.5, 1.5) << "\n";
+    std::cout << maximo(std::string("abc"), std::string("abd")) << "\n";
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Contagem de palavras usando std::map.
+#include <iostream>
+#include <map>
+#include <sstream>
+#include <string>
+
+int main() {
+    std::string texto = "o rato roeu a roupa do rei de roma o rato fugiu";
+    std::map<std::string, int> contagem;
+    std::istringstream iss(texto);
+    std::string palavra;
+    while (iss >> palavra) {
+        contagem[palavra]++;
+    }
+    for (const auto& par : contagem) {
+        std::cout << par.first << ": " << par.second << "\n";
+    }
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Ponteiros inteligentes: unique_ptr gerencia a memoria.
+#include <iostream>
+#include <memory>
+
+struct No {
+    int valor;
+    std::unique_ptr<No> proximo;
+    explicit No(int v) : valor(v), proximo(nullptr) {}
+};
+
+int main() {
+    std::unique_ptr<No> cabeca = std::make_unique<No>(1);
+    cabeca->proximo = std::make_unique<No>(2);
+    cabeca->proximo->proximo = std::make_unique<No>(3);
+
+    for (No* atual = cabeca.get(); atual != nullptr; atual = atual->proximo.get()) {
+        std::cout << atual->valor << " -> ";
+    }
+    std::cout << "null\n";
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Struct com std::vector e range-based for.
+#include <iostream>
+#include <string>
+#include <vector>
+
+struct Pessoa {
+    std::string nome;
+    int idade;
+};
+
+int main() {
+    std::vector<Pessoa> pessoas = {
+        {"Ana", 30},
+        {"Bruno", 25},
+        {"Carla", 42},
+    };
+    for (const Pessoa& p : pessoas) {
+        std::cout << p.nome << " tem " << p.idade << " anos.\n";
+    }
+    return 0;
+}
+
+// ------------------------------------------------------------
+// Numero primo: verificacao simples.
+#include <iostream>
+
+bool eh_primo(int n) {
+    if (n < 2) {
+        return false;
+    }
+    for (int i = 2; i * i <= n; ++i) {
+        if (n % i == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int main() {
+    for (int n = 2; n <= 30; ++n) {
+        if (eh_primo(n)) {
+            std::cout << n << " ";
+        }
+    }
+    std::cout << std::endl;
+    return 0;
+}
