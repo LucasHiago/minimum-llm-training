@@ -19,6 +19,21 @@ do Andrej Karpathy, mas ainda mais enxuto e didático.
 | `data/input.txt`    | Corpus de exemplo (fábulas em português)                  |
 | `download_data.py`  | Baixa um corpus maior (tiny shakespeare)                  |
 
+## Atalhos com Make (opcional)
+
+Se você tem `make`, dá para pular os comandos longos:
+
+```bash
+make setup                        # cria o venv e instala o PyTorch (CPU)
+make train                        # treina no corpus de exemplo
+make sample PROMPT="A raposa"     # gera texto
+make help                         # lista todos os comandos
+```
+
+Tudo é sobrescrevível: `make train ITERS=5000 N_LAYER=6`,
+`make sample PROMPT="O leão" TEMPERATURE=0.7 TOP_K=40`. Sem `make`? Use os
+comandos `python ...` das seções abaixo — o resultado é o mesmo.
+
 ## Instalação
 
 ```bash
