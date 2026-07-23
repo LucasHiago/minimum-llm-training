@@ -18,8 +18,7 @@ do Andrej Karpathy, mas ainda mais enxuto e didático.
 | `sample.py`         | Gera texto a partir de um modelo treinado                 |
 | `data/cpp.txt`      | Corpus de exemplo **em C++** (usado por padrão)           |
 | `prepare_cpp.py`    | Monta um corpus de C++ a partir dos seus arquivos         |
-| `data/input.txt`    | Corpus alternativo (fábulas em português)                 |
-| `download_data.py`  | Baixa um corpus maior (tiny shakespeare)                  |
+| `download_data.py`  | Baixa um corpus maior de exemplo (tiny shakespeare)       |
 
 > **Foco em C++.** Por padrão o modelo treina em `data/cpp.txt` e aprende a
 > **gerar/completar código C++**. Ele completa trechos no estilo do corpus —
@@ -38,8 +37,8 @@ make train AMP=1                    # treina na GPU com mixed precision
 make help                           # lista todos os comandos
 ```
 
-Tudo é sobrescrevível: `make train ITERS=5000 N_LAYER=6`,
-`make sample PROMPT="O leão" TEMPERATURE=0.7 TOP_K=40`. Sem `make`? Use os
+Tudo é sobrescrevível: `make train ITERS=5000 N_LAYER=6 AMP=1`,
+`make sample PROMPT="int main()" TEMPERATURE=0.7 TOP_K=40`. Sem `make`? Use os
 comandos `python ...` das seções abaixo — o resultado é o mesmo.
 
 ## Instalação
@@ -147,7 +146,7 @@ Não é só C++: aponte `--data` para qualquer `.txt` em UTF-8 (código de outra
 linguagem, prosa, etc.):
 
 ```bash
-python train.py --data data/input.txt --iters 4000   # ex.: fábulas em PT-BR
+python train.py --data data/meu_corpus.txt --iters 4000
 ```
 
 ## Controlando a geração

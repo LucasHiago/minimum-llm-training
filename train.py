@@ -4,8 +4,8 @@ train.py — Loop de treino do mini-GPT
 
 Uso básico:
 
-    python train.py                              # usa data/input.txt
-    python train.py --data data/meu_texto.txt    # seu próprio texto
+    python train.py                              # usa data/cpp.txt
+    python train.py --data data/cpp.txt          # corpus de C++ do usuário
     python train.py --iters 3000 --n_layer 6     # ajusta hiperparâmetros
 
 O que acontece aqui:

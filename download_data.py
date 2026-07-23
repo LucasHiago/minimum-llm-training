@@ -2,7 +2,7 @@
 download_data.py — Baixa um corpus maior para treinos mais interessantes
 ========================================================================
 
-O texto de exemplo em data/input.txt é pequeno (bom para testar em segundos).
+O corpus de C++ em data/cpp.txt é pequeno (bom para testar em segundos).
 Para o modelo aprender de verdade, use mais dados. Este script baixa o
 "tiny shakespeare" (~1 MB de texto em inglês), o dataset clássico para
 demonstrações de modelos de caractere.

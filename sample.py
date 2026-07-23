@@ -4,8 +4,8 @@ sample.py — Gera texto a partir de um modelo treinado
 
 Uso:
 
-    python sample.py --prompt "Era uma vez"
-    python sample.py --prompt "ROMEU:" --max_new_tokens 500 --temperature 0.8
+    python sample.py --prompt "int main()"
+    python sample.py --prompt "#include <vector>" --max_new_tokens 500 --temperature 0.8
 
 Parâmetros úteis:
     --temperature : < 1.0 = mais conservador; > 1.0 = mais criativo/aleatório

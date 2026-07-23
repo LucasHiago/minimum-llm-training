@@ -7,7 +7,7 @@ PYTHON := $(shell [ -x $(VENV)/bin/python ] && echo $(VENV)/bin/python || echo p
 
 # Variáveis sobrescrevíveis na linha de comando, ex.:
 #   make train ITERS=5000 N_LAYER=6
-#   make sample PROMPT="Era uma vez" TEMPERATURE=0.7
+#   make sample PROMPT="int main()" TEMPERATURE=0.7
 DATA        ?= data/cpp.txt
 ITERS       ?= 2000
 N_LAYER     ?= 4
