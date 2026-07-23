@@ -1,22 +1,30 @@
 """
-chat.py — Interface web estilo ChatGPT para o mini-GPT treinado
-================================================================
+chat.py — Interface web estilo ChatGPT para o mini-GPT (com MoE opcional)
+=========================================================================
 
 Sobe um servidor web local (só com a biblioteca padrão do Python — nenhuma
 dependência nova além do PyTorch) com um layout de chat: você escreve, o
 modelo responde com efeito de digitação (streaming, um caractere por vez).
 
-Uso:
+Um modelo só:
 
     python chat.py                       # abre em http://127.0.0.1:8000
-    python chat.py --port 9000
-    python chat.py --temperature 0.7 --top_k 40
+    python chat.py --port 9000 --temperature 0.7
+
+Vários especialistas (Mixture of Experts — veja moe.py e build_vocab.py):
+
+    python chat.py --experts out/vetores out/classes
+
+    Com >1 especialista, a interface ganha um seletor de modo:
+      • route  — um "porteiro" escolhe o especialista que melhor combina com o
+                 seu prompt (menor perplexidade) e SÓ ele responde.
+      • blend  — a cada letra TODOS votam, com pesos ao vivo (o "neurônios em
+                 grupo"). Exige vocabulário compartilhado (build_vocab.py).
 
 IMPORTANTE — o que este modelo é (e o que não é):
     Ele é um GPT de NÍVEL DE CARACTERE treinado para COMPLETAR código C++.
     Não foi ajustado para "responder perguntas" como o ChatGPT. Ele continua
-    o texto que você digitou no estilo do corpus. O layout aqui é de chat só
-    pela experiência — por baixo é completar texto. Digite um trecho de C++
+    o texto que você digitou no estilo do corpus. Digite um trecho de C++
     (ex.: "int main()") para ver o comportamento mais convincente.
 """
 
@@ -29,57 +37,100 @@ from urllib.parse import urlparse, parse_qs
 import torch
 from torch.nn import functional as F
 
-from model import GPT, GPTConfig
-from tokenizer import CharTokenizer
+from moe import Expert
 
 
 # ---------------------------------------------------------------------------
-# Modelo: carregar e gerar em streaming (um caractere por vez)
+# Motor: carrega 1+ especialistas e gera em streaming (um caractere por vez)
 # ---------------------------------------------------------------------------
 
-class Engine:
-    """Guarda o modelo/tokenizador carregados e gera texto em streaming."""
+class ChatEngine:
+    """Carrega os especialistas e gera texto em streaming.
 
-    def __init__(self, out_dir, device):
-        ckpt_path = os.path.join(out_dir, "ckpt.pt")
-        if not os.path.exists(ckpt_path):
-            raise SystemExit(
-                f"Não achei {ckpt_path}. Treine primeiro com: python train.py"
-            )
+    Com um único especialista, é um chat comum. Com vários, vira um Mixture of
+    Experts: `route` (escolhe um) ou `blend` (funde os votos de todos).
+
+    Os métodos de streaming produzem tuplas (tipo, dado):
+        ("meta",    {...})  — info de roteamento no início da resposta
+        ("weights", [...])  — pesos ao vivo de cada especialista (modo blend)
+        ("token",   "c")    — o próximo caractere gerado
+    """
+
+    def __init__(self, expert_dirs, device):
         self.device = device
-        self.tok = CharTokenizer.load(os.path.join(out_dir, "tokenizer.json"))
-        ckpt = torch.load(ckpt_path, map_location=device)
-        self.model = GPT(GPTConfig(**ckpt["config"])).to(device)
-        self.model.load_state_dict(ckpt["model"])
-        self.model.eval()
+        self.experts = [Expert(d, device) for d in expert_dirs]
+        self.names = [e.name for e in self.experts]
+        self.multi = len(self.experts) > 1
+        # `blend` só é possível se todos falam o mesmo alfabeto (mesmo vocab).
+        base = self.experts[0].tok.chars
+        self.blend_ok = self.multi and all(e.tok.chars == base for e in self.experts)
+
+    def stream(self, prompt, mode, max_new_tokens, temperature, top_k, router_temp):
+        if mode == "blend" and self.blend_ok:
+            yield from self._blend(prompt, max_new_tokens, temperature, top_k, router_temp)
+        else:
+            yield from self._route(prompt, max_new_tokens, temperature, top_k)
 
     @torch.no_grad()
-    def stream(self, prompt, max_new_tokens, temperature, top_k):
-        """Gera texto autoregressivo, devolvendo um caractere por vez.
+    def _route(self, prompt, max_new_tokens, temperature, top_k):
+        """Escolhe o especialista de menor perplexidade e gera só com ele."""
+        if self.multi:
+            scored = sorted(((e.nll(prompt), e) for e in self.experts), key=lambda t: t[0])
+            winner = scored[0][1]
+            yield ("meta", {"mode": "route", "chosen": winner.name,
+                            "scores": [{"name": e.name, "nll": round(s, 3)} for s, e in scored]})
+        else:
+            winner = self.experts[0]
 
-        É a mesma lógica de `model.generate`, mas com `yield` para que o
-        servidor possa mandar cada caractere ao navegador assim que sai.
-        """
-        model, tok = self.model, self.tok
-        block_size = model.config.block_size
-
-        # Converte o prompt em tokens (ignora caracteres fora do vocabulário).
-        start_ids = [tok.stoi[c] for c in prompt if c in tok.stoi] or [0]
-        idx = torch.tensor([start_ids], dtype=torch.long, device=self.device)
-
+        ids = winner.encode(prompt) or [0]
+        idx = torch.tensor([ids], dtype=torch.long, device=self.device)
+        block = winner.block_size
         for _ in range(max_new_tokens):
-            idx_cond = idx[:, -block_size:]           # corta pra janela de contexto
-            logits, _ = model(idx_cond)
-            logits = logits[:, -1, :] / max(temperature, 1e-6)  # só a última posição
-
+            logits, _ = winner.model(idx[:, -block:])
+            logits = logits[:, -1, :] / max(temperature, 1e-6)
             if top_k:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
                 logits[logits < v[:, [-1]]] = float("-inf")
-
             probs = F.softmax(logits, dim=-1)
             next_id = torch.multinomial(probs, num_samples=1)
             idx = torch.cat((idx, next_id), dim=1)
-            yield tok.itos[int(next_id)]
+            yield ("token", winner.tok.itos[int(next_id)])
+
+    @torch.no_grad()
+    def _blend(self, prompt, max_new_tokens, temperature, top_k, router_temp):
+        """A cada caractere, todos votam; combina pesado pela relevância atual."""
+        tok = self.experts[0].tok
+        yield ("meta", {"mode": "blend", "experts": self.names})
+
+        ids = [tok.stoi[c] for c in prompt if c in tok.stoi] or [0]
+        idx = torch.tensor([ids], dtype=torch.long, device=self.device)
+        for step in range(max_new_tokens):
+            probs_each, ctx_nll = [], []
+            for e in self.experts:
+                cond = idx[:, -e.block_size:]
+                logits, _ = e.model(cond)
+                p = F.softmax(logits[:, -1, :] / max(temperature, 1e-6), dim=-1)
+                probs_each.append(p.squeeze(0))
+                if cond.size(1) >= 2:
+                    nll = F.cross_entropy(logits[:, :-1, :].reshape(-1, logits.size(-1)),
+                                          cond[:, 1:].reshape(-1)).item()
+                else:
+                    nll = 0.0
+                ctx_nll.append(nll)
+
+            w = F.softmax(-torch.tensor(ctx_nll) / max(router_temp, 1e-6), dim=0)
+            mixed = sum(wi * pi for wi, pi in zip(w, probs_each))
+            if top_k:
+                v, _ = torch.topk(mixed, min(top_k, mixed.numel()))
+                mixed[mixed < v[-1]] = 0.0
+                mixed /= mixed.sum()
+            next_id = torch.multinomial(mixed, num_samples=1)
+            idx = torch.cat((idx, next_id.view(1, 1)), dim=1)
+
+            if step % 8 == 0:  # atualiza as barras de peso de vez em quando
+                yield ("weights", [{"name": n, "w": round(float(wi), 3)}
+                                    for n, wi in zip(self.names, w)])
+            yield ("token", tok.itos[int(next_id)])
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +188,19 @@ PAGE = r"""<!doctype html>
   .cursor::after { content: "▍"; color: var(--accent); animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
 
+  /* Painel de roteamento MoE (badges no route, barras no blend) */
+  .route { margin-bottom: 8px; display: none; flex-direction: column; gap: 5px; }
+  .route.show { display: flex; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .badge { font-size: 11px; padding: 3px 9px; border-radius: 20px; border: 1px solid var(--border);
+           color: var(--muted); font-family: ui-monospace, monospace; }
+  .badge.win { background: #23863622; border-color: #3fb95066; color: #7ee787; }
+  .bar { display: grid; grid-template-columns: 96px 1fr 44px; gap: 8px; align-items: center; font-size: 11px; }
+  .bar .name { color: var(--muted); font-family: ui-monospace, monospace; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+  .bar .track { height: 7px; background: var(--panel2); border-radius: 6px; overflow: hidden; }
+  .bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), #7ee787); transition: width .15s; }
+  .bar .pct { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+
   .empty { margin: auto; text-align: center; color: var(--muted); max-width: 460px; padding: 0 20px; }
   .empty h2 { color: var(--text); font-weight: 600; margin: 0 0 8px; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 18px; }
@@ -170,13 +234,22 @@ PAGE = r"""<!doctype html>
   .controls input[type=range] { accent-color: var(--accent); width: 110px; }
   .controls .val { color: var(--text); min-width: 30px; font-variant-numeric: tabular-nums; }
   .hint { text-align: center; color: var(--muted); font-size: 11px; margin-top: 10px; }
+
+  /* Seletor de modo route/blend (só aparece com vários especialistas) */
+  #modewrap { display: none; }
+  #modewrap.show { display: flex; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .seg button { background: transparent; color: var(--muted); border: 0; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  #rtwrap { display: none; }
+  #rtwrap.show { display: flex; }
 </style>
 </head>
 <body>
   <header>
     <span class="dot"></span>
     <h1>mini-GPT</h1>
-    <span class="sub">char-level · C++ · __DEVICE__</span>
+    <span class="sub">__SUBTITLE__</span>
   </header>
 
   <div id="chat">
@@ -199,6 +272,14 @@ PAGE = r"""<!doctype html>
         <button class="send" id="send" title="Enviar (Enter)">↑</button>
       </div>
       <div class="controls">
+        <label id="modewrap">modo
+          <span class="seg" id="seg">
+            <button data-mode="route" class="on">route</button>
+            <button data-mode="blend">blend</button>
+          </span>
+        </label>
+        <label id="rtwrap">mistura <input type="range" id="rt" min="0.1" max="4" step="0.1" value="__RT__">
+          <span class="val" id="rtv">__RT__</span></label>
         <label>temperatura <input type="range" id="temp" min="0.1" max="1.5" step="0.1" value="__TEMP__">
           <span class="val" id="tempv">__TEMP__</span></label>
         <label>tokens <input type="range" id="tokens" min="50" max="600" step="50" value="__MAXTOK__">
@@ -211,6 +292,9 @@ PAGE = r"""<!doctype html>
   </footer>
 
 <script>
+const EXPERTS = __EXPERTS__;      // nomes dos especialistas
+const BLEND_OK = __BLENDOK__;     // fusão disponível (vocab compartilhado)
+
 const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const send = document.getElementById('send');
@@ -218,10 +302,27 @@ const empty = document.getElementById('empty');
 const temp = document.getElementById('temp'), tempv = document.getElementById('tempv');
 const tokens = document.getElementById('tokens'), tokensv = document.getElementById('tokensv');
 const topk = document.getElementById('topk'), topkv = document.getElementById('topkv');
+const rt = document.getElementById('rt'), rtv = document.getElementById('rtv');
 
 temp.oninput = () => tempv.textContent = temp.value;
 tokens.oninput = () => tokensv.textContent = tokens.value;
 topk.oninput = () => topkv.textContent = topk.value === '0' ? 'off' : topk.value;
+rt.oninput = () => rtv.textContent = rt.value;
+
+// Seletor de modo (route/blend), só quando há >1 especialista.
+let mode = 'route';
+if (EXPERTS.length > 1) {
+  document.getElementById('modewrap').classList.add('show');
+  const seg = document.getElementById('seg');
+  const blendBtn = seg.querySelector('[data-mode=blend]');
+  if (!BLEND_OK) { blendBtn.disabled = true; blendBtn.title = 'Precisa de vocabulário compartilhado (build_vocab.py)'; blendBtn.style.opacity = .4; }
+  seg.querySelectorAll('button').forEach(b => b.onclick = () => {
+    if (b.disabled) return;
+    mode = b.dataset.mode;
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+    document.getElementById('rtwrap').classList.toggle('show', mode === 'blend');
+  });
+}
 
 let es = null;             // EventSource ativo
 let busy = false;
@@ -235,18 +336,29 @@ function addRow(role, text) {
   row.className = 'row ' + role;
   row.innerHTML = `<div class="avatar">${role === 'user' ? 'Tu' : 'GPT'}</div>
     <div class="bubble"><div class="who">${role === 'user' ? 'Você' : 'mini-GPT'}</div>
-    <div class="msg"></div></div>`;
+    <div class="route"></div><div class="msg"></div></div>`;
   row.querySelector('.msg').textContent = text;
   chat.appendChild(row);
   chat.scrollTop = chat.scrollHeight;
-  return row.querySelector('.msg');
+  return { msg: row.querySelector('.msg'), route: row.querySelector('.route') };
 }
 
-function setBusy(b) {
-  busy = b;
-  send.disabled = b;
-  send.textContent = b ? '■' : '↑';
+function renderRoute(panel, m) {
+  panel.classList.add('show');
+  const badges = m.scores.map(s =>
+    `<span class="badge ${s.name === m.chosen ? 'win' : ''}">${s.name} · ${s.nll}</span>`).join('');
+  panel.innerHTML = `<div class="badges"><span style="color:var(--muted)">roteado →</span>${badges}</div>`;
 }
+
+function renderWeights(panel, list) {
+  panel.classList.add('show');
+  panel.innerHTML = list.map(x =>
+    `<div class="bar"><span class="name">${x.name}</span>
+       <span class="track"><span class="fill" style="width:${(x.w*100).toFixed(0)}%"></span></span>
+       <span class="pct">${(x.w*100).toFixed(0)}%</span></div>`).join('');
+}
+
+function setBusy(b) { busy = b; send.disabled = b; send.textContent = b ? '■' : '↑'; }
 
 function stop() {
   if (es) { es.close(); es = null; }
@@ -260,14 +372,21 @@ function submit() {
   addRow('user', prompt);
   input.value = ''; autosize();
 
-  const msg = addRow('bot', '');
+  const { msg, route } = addRow('bot', '');
   msg.classList.add('cursor');
   setBusy(true);
 
   const qs = new URLSearchParams({
-    prompt, temperature: temp.value, max_new_tokens: tokens.value, top_k: topk.value,
+    prompt, mode, temperature: temp.value, max_new_tokens: tokens.value,
+    top_k: topk.value, router_temp: rt.value,
   });
   es = new EventSource('/stream?' + qs.toString());
+  es.addEventListener('meta', e => {
+    const m = JSON.parse(e.data);
+    if (m.mode === 'route' && m.scores) renderRoute(route, m);
+    else if (m.mode === 'blend') renderWeights(route, m.experts.map(n => ({ name: n, w: 1 / m.experts.length })));
+  });
+  es.addEventListener('weights', e => renderWeights(route, JSON.parse(e.data)));
   es.addEventListener('token', e => {
     msg.textContent += JSON.parse(e.data);
     chat.scrollTop = chat.scrollHeight;
@@ -295,8 +414,15 @@ input.focus();
 # ---------------------------------------------------------------------------
 
 def make_handler(engine, defaults):
+    if engine.multi:
+        subtitle = f"char-level · {len(engine.experts)} especialistas · {engine.device}"
+    else:
+        subtitle = f"char-level · C++ · {engine.device}"
     page = (
-        PAGE.replace("__DEVICE__", engine.device)
+        PAGE.replace("__SUBTITLE__", subtitle)
+        .replace("__EXPERTS__", json.dumps(engine.names))
+        .replace("__BLENDOK__", "true" if engine.blend_ok else "false")
+        .replace("__RT__", str(defaults["router_temp"]))
         .replace("__TEMP__", str(defaults["temperature"]))
         .replace("__MAXTOK__", str(defaults["max_new_tokens"]))
         .replace("__TOPK__", str(defaults["top_k"] or 0))
@@ -324,26 +450,30 @@ def make_handler(engine, defaults):
             self.end_headers()
             self.wfile.write(body)
 
+        def _sse(self, event, data):
+            self.wfile.write(f"event: {event}\ndata: {json.dumps(data)}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
         def _stream(self, q):
-            prompt = (q.get("prompt", [""])[0])
+            prompt = q.get("prompt", [""])[0]
+            mode = q.get("mode", ["route"])[0]
             temperature = float(q.get("temperature", [defaults["temperature"]])[0])
             max_new = int(float(q.get("max_new_tokens", [defaults["max_new_tokens"]])[0]))
             top_k = int(float(q.get("top_k", [0])[0])) or None
+            router_temp = float(q.get("router_temp", [defaults["router_temp"]])[0])
             max_new = max(1, min(max_new, 2000))  # trava de segurança
 
-            # Server-Sent Events: manda cada caractere assim que sai do modelo.
+            # Server-Sent Events: manda cada evento assim que sai do modelo.
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.end_headers()
             try:
-                for ch in engine.stream(prompt, max_new, temperature, top_k):
-                    data = json.dumps(ch)  # JSON escapa quebras de linha etc.
-                    self.wfile.write(f"event: token\ndata: {data}\n\n".encode("utf-8"))
-                    self.wfile.flush()
-                self.wfile.write(b"event: done\ndata: 1\n\n")
-                self.wfile.flush()
+                for kind, data in engine.stream(prompt, mode, max_new, temperature,
+                                                top_k, router_temp):
+                    self._sse(kind, data)  # kind ∈ {meta, weights, token}
+                self._sse("done", 1)
             except (BrokenPipeError, ConnectionResetError):
                 pass  # o navegador fechou a conexão (usuário parou a geração)
 
@@ -351,28 +481,36 @@ def make_handler(engine, defaults):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Chat web para o mini-GPT.")
+    p = argparse.ArgumentParser(description="Chat web para o mini-GPT (com MoE opcional).")
     p.add_argument("--out", default="out", help="pasta com ckpt.pt e tokenizer.json")
+    p.add_argument("--experts", nargs="+", default=None,
+                   help="pastas de especialistas (Mixture of Experts). Sem isto, usa --out")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     p.add_argument("--temperature", type=float, default=0.8)
     p.add_argument("--top_k", type=int, default=None)
     p.add_argument("--max_new_tokens", type=int, default=300)
+    p.add_argument("--router_temp", type=float, default=0.5,
+                   help="[blend] alto = mistura mais democrática; baixo = o melhor domina")
     p.add_argument("--device", default=None)
     args = p.parse_args()
 
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
-    engine = Engine(args.out, device)
+    engine = ChatEngine(args.experts or [args.out], device)
     defaults = {
         "temperature": args.temperature,
         "top_k": args.top_k,
         "max_new_tokens": args.max_new_tokens,
+        "router_temp": args.router_temp,
     }
 
     handler = make_handler(engine, defaults)
     server = ThreadingHTTPServer((args.host, args.port), handler)
-    n_params = engine.model.num_params()
-    print(f"Modelo carregado ({n_params:,} parâmetros) em {device}.")
+    if engine.multi:
+        print(f"{len(engine.experts)} especialistas: {', '.join(engine.names)} "
+              f"({'route+blend' if engine.blend_ok else 'só route — vocab difere'}) em {device}.")
+    else:
+        print(f"Modelo carregado ({engine.experts[0].model.num_params():,} parâmetros) em {device}.")
     print(f"Chat no ar: http://{args.host}:{args.port}  (Ctrl+C para sair)")
     try:
         server.serve_forever()

@@ -162,6 +162,16 @@ Usa **só a biblioteca padrão do Python** (nenhuma dependência além do PyTorc
 Enter envia, Shift+Enter quebra linha, Esc interrompe a geração; dá para ajustar
 temperatura, tokens e top-k ao vivo.
 
+**Com vários especialistas (MoE no chat).** Passe `--experts` e a interface
+ganha um seletor **route/blend** — no `route` aparece um selo mostrando qual
+especialista respondeu; no `blend`, barras ao vivo com o peso de cada um a cada
+letra (o "neurônios em grupo", veja a seção do MoE acima):
+
+```bash
+python chat.py --experts out/vetores out/classes
+make chat EXPERTS="out/vetores out/classes"
+```
+
 > Lembre-se: por baixo o modelo **completa código C++**, não responde perguntas.
 > O layout é de chat pela experiência — comece com um trecho como `int main()`.
 

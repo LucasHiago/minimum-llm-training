@@ -29,8 +29,10 @@ EXPERTS     ?= out
 MODE        ?= route
 
 # Flags opcionais: só entram na linha de comando quando definidas.
-TOPK_FLAG := $(if $(TOP_K),--top_k $(TOP_K),)
-AMP_FLAG  := $(if $(filter 1,$(AMP)),--amp,)
+TOPK_FLAG    := $(if $(TOP_K),--top_k $(TOP_K),)
+AMP_FLAG     := $(if $(filter 1,$(AMP)),--amp,)
+# Passa --experts ao chat só quando EXPERTS difere do padrão "out".
+EXPERTS_FLAG := $(if $(filter-out out,$(EXPERTS)),--experts $(EXPERTS),)
 
 .DEFAULT_GOAL := help
 .PHONY: help setup install train micro train-more sample chat moe data cpp clean clean-all
@@ -72,8 +74,8 @@ sample: ## Gera texto (use PROMPT=, MAX_TOKENS=, TEMPERATURE=, TOP_K=)
 		--prompt "$(PROMPT)" --max_new_tokens $(MAX_TOKENS) \
 		--temperature $(TEMPERATURE) $(TOPK_FLAG)
 
-chat: ## Abre o chat web estilo GPT (use PORT=, HOST=, TEMPERATURE=)
-	$(PYTHON) chat.py --host $(HOST) --port $(PORT) \
+chat: ## Abre o chat web estilo GPT (use PORT=, EXPERTS="out/a out/b" p/ MoE)
+	$(PYTHON) chat.py --host $(HOST) --port $(PORT) $(EXPERTS_FLAG) \
 		--temperature $(TEMPERATURE) --max_new_tokens $(MAX_TOKENS) $(TOPK_FLAG)
 
 moe: ## Junta especialistas (use EXPERTS="out/a out/b", MODE=route|blend, PROMPT=)
