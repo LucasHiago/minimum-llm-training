@@ -78,6 +78,37 @@ passo  2000 | treino 1.4832 | val 1.6201
 python sample.py --prompt "int main()"
 ```
 
+## Micro-treinos e treino cumulativo (mais rápido)
+
+O treino padrão (`balanced`) leva ~10 min só na CPU. Para um ciclo de
+experimentação rápido, use um **preset** menor — o `tiny` treina em ~40 s:
+
+```bash
+python train.py --preset tiny        # ~40s na CPU (modelo minúsculo)
+python train.py --preset fast        # meio-termo
+make micro                           # (com make) atalho para o preset tiny
+```
+
+Presets disponíveis: `tiny`, `fast`, `balanced` (padrão), `quality` (só com GPU).
+Qualquer hiperparâmetro segue sobrescrevível: `python train.py --preset tiny --iters 2000`.
+
+**Treino cumulativo (`--resume`).** Você não precisa treinar tudo de uma vez:
+treine um pouco, pare, e **continue de onde parou** depois. O treino é
+acumulativo — pesos *e* o estado do otimizador (o "momentum" do AdamW) são
+salvos e restaurados, então 500 + 500 passos ≈ 1000 passos de uma vez:
+
+```bash
+python train.py --preset tiny --iters 500   # 1º pedaço  (total: 500)
+python train.py --resume --iters 500        # +500 passos (total: 1000)
+python train.py --resume --iters 500        # +500 passos (total: 1500)
+make train-more ITERS=500                    # (com make) o mesmo, cumulativo
+```
+
+Cada run mostra **passos/s** e **ETA** para você saber quanto falta. Duas
+ressalvas do char-level: a arquitetura e o **vocabulário são fixados no 1º
+treino** — ao retomar, o modelo reusa o tokenizador salvo e ignora (com aviso)
+caracteres novos que não existiam no corpus original.
+
 ## Chat web (estilo GPT)
 
 Já tem um modelo treinado? Suba uma interface de chat no navegador — com

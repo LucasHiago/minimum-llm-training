@@ -24,13 +24,14 @@ TOP_K       ?=
 CPP_SRC     ?= data/cpp_src
 HOST        ?= 127.0.0.1
 PORT        ?= 8000
+PRESET      ?= tiny
 
 # Flags opcionais: só entram na linha de comando quando definidas.
 TOPK_FLAG := $(if $(TOP_K),--top_k $(TOP_K),)
 AMP_FLAG  := $(if $(filter 1,$(AMP)),--amp,)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup install train sample chat data cpp clean clean-all
+.PHONY: help setup install train micro train-more sample chat data cpp clean clean-all
 
 help: ## Mostra esta ajuda
 	@echo "minimum-llm-training — comandos disponíveis:"
@@ -57,6 +58,12 @@ train: ## Treina o modelo (use ITERS=, N_LAYER=, DATA=, AMP=1 p/ GPU)
 		--data $(DATA) --iters $(ITERS) \
 		--n_layer $(N_LAYER) --n_head $(N_HEAD) --n_embd $(N_EMBD) \
 		--block_size $(BLOCK_SIZE) --batch_size $(BATCH_SIZE) --lr $(LR) $(AMP_FLAG)
+
+micro: ## Micro-treino rápido do zero (use PRESET=tiny|fast|balanced|quality)
+	$(PYTHON) train.py --data $(DATA) --preset $(PRESET)
+
+train-more: ## Continua o treino do checkpoint, somando +ITERS passos (cumulativo)
+	$(PYTHON) train.py --data $(DATA) --resume --iters $(ITERS) $(AMP_FLAG)
 
 sample: ## Gera texto (use PROMPT=, MAX_TOKENS=, TEMPERATURE=, TOP_K=)
 	$(PYTHON) sample.py \
