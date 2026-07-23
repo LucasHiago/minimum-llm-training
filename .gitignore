@@ -1,0 +1,14 @@
+# Saídas de treino (pesos, tokenizador)
+out/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Editores / SO
+.DS_Store
+.idea/
+.vscode/
