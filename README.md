@@ -20,6 +20,8 @@ do Andrej Karpathy, mas ainda mais enxuto e didático.
 | `prepare_cpp.py`    | Monta um corpus de C++ a partir dos seus arquivos         |
 | `download_data.py`  | Baixa um corpus maior de exemplo (tiny shakespeare)       |
 | `chat.py`           | Interface web estilo GPT (streaming) para o modelo treinado |
+| `build_vocab.py`    | Monta um vocabulário compartilhado entre vários corpora   |
+| `moe.py`            | Mistura de Especialistas: agrupa vários modelos pequenos  |
 
 > **Foco em C++.** Por padrão o modelo treina em `data/cpp.txt` e aprende a
 > **gerar/completar código C++**. Ele completa trechos no estilo do corpus —
@@ -108,6 +110,43 @@ Cada run mostra **passos/s** e **ETA** para você saber quanto falta. Duas
 ressalvas do char-level: a arquitetura e o **vocabulário são fixados no 1º
 treino** — ao retomar, o modelo reusa o tokenizador salvo e ignora (com aviso)
 caracteres novos que não existiam no corpus original.
+
+## Vários modelos pequenos que se agrupam (Mixture of Experts)
+
+E se, em vez de **um** modelo grande, você treinasse **vários pequenos e
+especializados** que se complementam — como neurônios, que só fazem sentido em
+grupo? Isso tem nome: **Mixture of Experts (MoE)**, a mesma ideia por trás de
+modelos de ponta como o Mixtral. Cada especialista é um checkpoint treinado num
+corpus/estilo diferente; um **roteador** decide quem responde.
+
+Fluxo completo:
+
+```bash
+# 1) Vocabulário COMPARTILHADO entre os corpora (para os experts se combinarem)
+python build_vocab.py --out out/vocab.json data/vetores.txt data/classes.txt
+
+# 2) Um especialista por corpus (todos com o mesmo --vocab), em pastas separadas
+python train.py --data data/vetores.txt --vocab out/vocab.json --out out/vetores --preset tiny
+python train.py --data data/classes.txt --vocab out/vocab.json --out out/classes --preset tiny
+
+# 3a) ROTEADOR: mede quem fica "menos surpreso" com o prompt e deixa SÓ ele responder
+python moe.py --experts out/vetores out/classes --mode route --prompt "std::vector<int> v = {"
+#   vetores  0.34  <- escolhido
+#   classes  4.45
+
+# 3b) FUSÃO: todos votam cada letra, pesados por quem melhor explica o texto até aqui
+python moe.py --experts out/vetores out/classes --mode blend --prompt "class Point {" --router_temp 3
+#   classes  82%   vetores  18%   (--router_temp alto mistura mais; baixo = o melhor domina)
+```
+
+- **`--mode route`** (*hard routing*): escolhe **um** especialista por perplexidade — o "acessa o A pelo B" via um coordenador que escolhe o melhor.
+- **`--mode blend`** (*soft routing*, o MoE "de verdade"): a cada caractere **todos** contribuem, com pesos que podem migrar durante a geração — o "neurônios disparando em grupo".
+
+**Teto honesto:** aqui os especialistas são *char-level* minúsculos, então você
+vê o **mecanismo** fiel (roteamento e fusão), não "raciocínio" nem transferência
+de conhecimento real. O roteador acerta o domínio e gera **no estilo** certo; a
+capacidade de verdade viria de escala + treino. A visão de milhares agrupados é
+a direção certa — isto é o MoE cabendo na cabeça, de ponta a ponta.
 
 ## Chat web (estilo GPT)
 

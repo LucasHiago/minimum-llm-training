@@ -84,6 +84,9 @@ def main():
                    help="conjunto de hiperparâmetros (tiny/fast/balanced/quality)")
     p.add_argument("--resume", action="store_true",
                    help="continua o treino do checkpoint em --out (treino cumulativo)")
+    p.add_argument("--vocab", default=None,
+                   help="usa um vocabulário fixo (JSON do build_vocab.py) em vez de "
+                        "construir do texto — necessário para especialistas do MoE")
     # Estes ficam como None: se não forem passados, herdam do --preset.
     p.add_argument("--iters", type=int, help="passos de treino DESTE run")
     p.add_argument("--batch_size", type=int)
@@ -141,7 +144,8 @@ def main():
         best_val = ckpt.get("best_val", float("inf"))
         print(f"Retomando de {ckpt_path} (já treinado por {start_iter:,} passos).")
     else:
-        tok = CharTokenizer.from_text(text)
+        # Vocabulário fixo (para MoE) ou construído a partir do próprio texto.
+        tok = CharTokenizer.load(args.vocab) if args.vocab else CharTokenizer.from_text(text)
         config = GPTConfig(
             vocab_size=tok.vocab_size, block_size=args.block_size,
             n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd,
