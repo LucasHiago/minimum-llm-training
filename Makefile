@@ -22,13 +22,15 @@ MAX_TOKENS  ?= 300
 TEMPERATURE ?= 0.8
 TOP_K       ?=
 CPP_SRC     ?= data/cpp_src
+HOST        ?= 127.0.0.1
+PORT        ?= 8000
 
 # Flags opcionais: só entram na linha de comando quando definidas.
 TOPK_FLAG := $(if $(TOP_K),--top_k $(TOP_K),)
 AMP_FLAG  := $(if $(filter 1,$(AMP)),--amp,)
 
 .DEFAULT_GOAL := help
-.PHONY: help setup install train sample data cpp clean clean-all
+.PHONY: help setup install train sample chat data cpp clean clean-all
 
 help: ## Mostra esta ajuda
 	@echo "minimum-llm-training — comandos disponíveis:"
@@ -60,6 +62,10 @@ sample: ## Gera texto (use PROMPT=, MAX_TOKENS=, TEMPERATURE=, TOP_K=)
 	$(PYTHON) sample.py \
 		--prompt "$(PROMPT)" --max_new_tokens $(MAX_TOKENS) \
 		--temperature $(TEMPERATURE) $(TOPK_FLAG)
+
+chat: ## Abre o chat web estilo GPT (use PORT=, HOST=, TEMPERATURE=)
+	$(PYTHON) chat.py --host $(HOST) --port $(PORT) \
+		--temperature $(TEMPERATURE) --max_new_tokens $(MAX_TOKENS) $(TOPK_FLAG)
 
 cpp: ## Monta data/cpp.txt a partir dos seus arquivos (use CPP_SRC=<pasta>)
 	$(PYTHON) prepare_cpp.py --src $(CPP_SRC) --out $(DATA)

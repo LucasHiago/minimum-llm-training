@@ -19,6 +19,7 @@ do Andrej Karpathy, mas ainda mais enxuto e didático.
 | `data/cpp.txt`      | Corpus de exemplo **em C++** (usado por padrão)           |
 | `prepare_cpp.py`    | Monta um corpus de C++ a partir dos seus arquivos         |
 | `download_data.py`  | Baixa um corpus maior de exemplo (tiny shakespeare)       |
+| `chat.py`           | Interface web estilo GPT (streaming) para o modelo treinado |
 
 > **Foco em C++.** Por padrão o modelo treina em `data/cpp.txt` e aprende a
 > **gerar/completar código C++**. Ele completa trechos no estilo do corpus —
@@ -76,6 +77,23 @@ passo  2000 | treino 1.4832 | val 1.6201
 ```bash
 python sample.py --prompt "int main()"
 ```
+
+## Chat web (estilo GPT)
+
+Já tem um modelo treinado? Suba uma interface de chat no navegador — com
+respostas em *streaming* (caractere por caractere), como o ChatGPT:
+
+```bash
+python chat.py            # abre em http://127.0.0.1:8000
+make chat PORT=9000       # (com make) porta customizada
+```
+
+Usa **só a biblioteca padrão do Python** (nenhuma dependência além do PyTorch).
+Enter envia, Shift+Enter quebra linha, Esc interrompe a geração; dá para ajustar
+temperatura, tokens e top-k ao vivo.
+
+> Lembre-se: por baixo o modelo **completa código C++**, não responde perguntas.
+> O layout é de chat pela experiência — comece com um trecho como `int main()`.
 
 ## Como funciona (visão de 1 minuto)
 
